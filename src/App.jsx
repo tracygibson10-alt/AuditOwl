@@ -151,85 +151,116 @@ function App() {
         </main>
       ) : (
         /* Report View */
-        <main className="w-full max-w-4xl px-6 py-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <div className="flex justify-between items-end mb-8">
+        <main className="w-full max-w-5xl px-6 py-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 mb-12">
             <div>
-              <h2 className="text-3xl font-bold mb-2">Audit Report</h2>
-              <p className="text-slate-400">{url}</p>
+              <div className="inline-flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/20 px-3 py-1 rounded-full mb-4">
+                <span className="text-xs font-semibold text-indigo-400 uppercase tracking-wider">Free Mini-Audit Results</span>
+              </div>
+              <h2 className="text-4xl font-bold mb-2">Website Audit Report</h2>
+              <p className="text-slate-400 font-mono text-sm">{url}</p>
             </div>
-            <div className="text-right">
-              <div className="text-5xl font-black text-indigo-400">{report.healthScore}</div>
-              <div className="text-xs font-bold text-slate-500 uppercase tracking-widest">Health Score</div>
+            <div className="flex gap-8 bg-slate-900/50 p-6 rounded-2xl border border-slate-800">
+              <div className="text-center">
+                <div className="text-4xl font-black text-indigo-400">{report.healthScore}</div>
+                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Health Score</div>
+              </div>
+              <div className="w-px h-10 bg-slate-800 self-center"></div>
+              <div className="text-center">
+                <div className="text-4xl font-black text-red-400">{report.criticalIssuesCount}</div>
+                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Critical</div>
+              </div>
             </div>
           </div>
 
-          <div className="bg-indigo-600/10 border border-indigo-500/20 p-6 rounded-2xl mb-8">
-            <h3 className="text-lg font-bold mb-2 flex items-center gap-2">
+          <div className="bg-gradient-to-br from-indigo-600/20 to-cyan-600/10 border border-indigo-500/20 p-8 rounded-3xl mb-12 relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-4 opacity-10 text-8xl">🦉</div>
+            <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
               <span>✨</span> Executive Summary
             </h3>
-            <p className="text-slate-300 leading-relaxed">{report.summary}</p>
+            <p className="text-slate-300 text-lg leading-relaxed max-w-3xl">{report.summary}</p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-slate-900/50 border border-slate-800 p-6 rounded-2xl">
-              <h3 className="font-bold mb-4 flex items-center gap-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
+            {/* CRO Section */}
+            <div className="bg-slate-900/40 border border-slate-800 p-8 rounded-3xl">
+              <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
                 <span className="text-indigo-400">📈</span> Conversion (CRO)
               </h3>
-              <ul className="space-y-4 text-sm">
-                <li>
-                  <span className="block text-slate-500 font-semibold uppercase text-xs mb-1">Value Prop</span>
-                  <span className="text-slate-300">{report.cro.valueProp}</span>
-                </li>
-                <li>
-                  <span className="block text-slate-500 font-semibold uppercase text-xs mb-1">CTA Audit</span>
-                  <span className="text-slate-300">{report.cro.ctaAudit}</span>
-                </li>
-                <li>
-                  <span className="block text-slate-500 font-semibold uppercase text-xs mb-1">Trust Signals</span>
-                  <span className="text-slate-300">{report.cro.trustSignals}</span>
-                </li>
-              </ul>
-            </div>
-
-            <div className="bg-slate-900/50 border border-slate-800 p-6 rounded-2xl">
-              <h3 className="font-bold mb-4 flex items-center gap-2">
-                <span className="text-indigo-400">🔍</span> Search (SEO)
-              </h3>
-              <ul className="space-y-4 text-sm">
-                <li>
-                  <span className="block text-slate-500 font-semibold uppercase text-xs mb-1">Title Tag</span>
-                  <span className="text-slate-300">{report.seo.titleTag}</span>
-                </li>
-                <li>
-                  <span className="block text-slate-500 font-semibold uppercase text-xs mb-1">Meta Description</span>
-                  <span className="text-slate-300">{report.seo.metaDescription}</span>
-                </li>
-                <li>
-                  <span className="block text-slate-500 font-semibold uppercase text-xs mb-1">Header Hierarchy</span>
-                  <span className="text-slate-300">{report.seo.h1Hierarchy}</span>
-                </li>
-              </ul>
-            </div>
-
-            <div className="bg-slate-900/50 border border-slate-800 p-6 rounded-2xl md:col-span-2">
-              <h3 className="font-bold mb-4 flex items-center gap-2">
-                <span className="text-indigo-400">⚡</span> Performance
-              </h3>
-              <div className="flex flex-col md:flex-row gap-8">
-                <div className="flex-1">
-                  <div className="text-3xl font-bold text-white mb-1">{report.performance.score}/100</div>
-                  <div className="text-xs font-bold text-slate-500 uppercase tracking-widest">Perf Score</div>
+              <div className="space-y-6">
+                <div>
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Value Prop Clarity</span>
+                    <span className={`text-xs font-bold px-2 py-1 rounded ${report.cro.valuePropClarity === 'Clear' ? 'bg-green-500/10 text-green-400' : 'bg-yellow-500/10 text-yellow-400'}`}>
+                      {report.cro.valuePropClarity}
+                    </span>
+                  </div>
+                  <p className="text-slate-300 text-sm italic">"{report.cro.valuePropTeaser}"</p>
                 </div>
-                <div className="flex-[2]">
-                  <span className="block text-slate-500 font-semibold uppercase text-xs mb-2">Recommendations</span>
-                  <ul className="list-disc list-inside text-sm text-slate-300 space-y-1">
-                    {report.performance.recommendations.map((rec, i) => (
-                      <li key={i}>{rec}</li>
-                    ))}
-                  </ul>
+                <div>
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Primary CTA Check</span>
+                    <span className={`text-xs font-bold px-2 py-1 rounded ${report.cro.hasAboveFoldCTA ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+                      {report.cro.hasAboveFoldCTA ? 'Found Above Fold' : 'Missing Above Fold'}
+                    </span>
+                  </div>
+                  <p className="text-slate-300 text-sm">{report.cro.ctaAudit}</p>
                 </div>
               </div>
             </div>
+
+            {/* SEO Section */}
+            <div className="bg-slate-900/40 border border-slate-800 p-8 rounded-3xl">
+              <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
+                <span className="text-indigo-400">🔍</span> Basic SEO Health
+              </h3>
+              <div className="space-y-6 text-sm">
+                <div className="flex justify-between items-center py-2 border-b border-slate-800">
+                  <span className="text-slate-400 font-medium">Title Tag</span>
+                  <span className="text-slate-200 font-semibold">{report.seo.titleTag}</span>
+                </div>
+                <div className="flex justify-between items-center py-2 border-b border-slate-800">
+                  <span className="text-slate-400 font-medium">Meta Description</span>
+                  <span className="text-slate-200 font-semibold">{report.seo.metaDescription}</span>
+                </div>
+                <div className="flex justify-between items-center py-2 border-b border-slate-800">
+                  <span className="text-slate-400 font-medium">H1 Hierarchy</span>
+                  <span className="text-slate-200 font-semibold">{report.seo.h1Check}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Performance Section */}
+            <div className="bg-slate-900/40 border border-slate-800 p-8 rounded-3xl md:col-span-2">
+              <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
+                <span className="text-indigo-400">⚡</span> Performance & Mobile
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <div className="bg-slate-950/50 p-6 rounded-2xl text-center">
+                   <div className="text-3xl font-bold text-white mb-1">{report.performance.loadTimeSec}s</div>
+                   <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Load Time</div>
+                </div>
+                <div className="bg-slate-950/50 p-6 rounded-2xl text-center">
+                   <div className={`text-3xl font-bold mb-1 ${report.performance.isResponsive === 'Pass' ? 'text-green-400' : 'text-red-400'}`}>{report.performance.isResponsive}</div>
+                   <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Mobile Responsive</div>
+                </div>
+                <div className="bg-slate-950/50 p-6 rounded-2xl text-center">
+                   <div className={`text-3xl font-bold mb-1 ${report.performance.cwvTeaser.startsWith('Pass') ? 'text-green-400' : 'text-yellow-400'}`}>{report.performance.cwvTeaser.split(' ')[0]}</div>
+                   <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Core Web Vitals</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Upgrade CTA */}
+          <div className="bg-indigo-600 p-10 rounded-3xl text-center shadow-xl shadow-indigo-600/20">
+            <h3 className="text-2xl font-bold mb-4">Want the full implementation roadmap?</h3>
+            <p className="text-indigo-100 mb-8 max-w-2xl mx-auto text-lg">
+              Get the $19 Full Deep-Dive Audit. Includes fix-it guides, detailed technical SEO, competitor benchmarking, and prioritized tasks.
+            </p>
+            <button className="bg-white text-indigo-600 px-10 py-4 rounded-2xl font-black text-xl hover:scale-105 transition-transform">
+              Get Full Audit - $19
+            </button>
           </div>
 
           <div className="mt-12 text-center">

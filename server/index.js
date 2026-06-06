@@ -14,44 +14,53 @@ async function callLLM(data) {
     if (!process.env.OPENAI_API_KEY) {
         console.warn("No OPENAI_API_KEY found, returning mock data.");
         return {
-            healthScore: 72,
-            summary: "Your site has a solid foundation but is missing key trust signals and has slow mobile load times.",
+            healthScore: 68,
+            criticalIssuesCount: 3,
+            warningsCount: 5,
+            summary: "Your site has good potential but fails basic mobile and trust checks. High friction in the hero section is likely costing you conversions.",
             cro: {
-                valueProp: "Clear, but could be more benefit-driven.",
-                ctaAudit: "CTA is visible but contrast could be improved.",
-                trustSignals: "Missing testimonials and trust badges."
+                valuePropClarity: "Needs Improvement",
+                valuePropTeaser: "The site appears to offer professional consulting services, but the benefits aren't immediately clear.",
+                hasAboveFoldCTA: data.hasAboveFoldCTA,
+                ctaAudit: "No clear primary CTA was found in the initial viewport. Users may be confused about the next step."
             },
             seo: {
-                titleTag: "Good length, but lacks primary keyword.",
-                metaDescription: "Present, but needs a stronger call to action.",
-                h1Hierarchy: "Correct usage of H1."
+                titleTag: data.title.length > 0 ? "Present (" + data.title.length + " chars)" : "Missing",
+                metaDescription: data.metaDescription ? "Present" : "Missing",
+                h1Check: data.h1s.length === 1 ? "Pass (Single H1 found)" : "Fail (" + data.h1s.length + " H1s found)"
             },
             performance: {
-                score: 65,
-                recommendations: ["Compress images", "Minify JS"]
+                loadTimeSec: (data.performance.loadTimeMs / 1000).toFixed(2),
+                isResponsive: data.performance.isResponsive ? "Pass" : "Fail",
+                cwvTeaser: "Fail (LCP is likely high based on heavy images)"
             }
         };
     }
 
     const prompt = `
-        You are an expert CRO and SEO auditor. Analyze the following website data and provide a structured JSON report.
-        Follow this structure:
+        You are an expert CRO and SEO auditor for "AuditOwl". Provide a structured JSON "Free Mini-Audit" report based on the following website data.
+        
+        The report must follow this exact JSON structure:
         {
             "healthScore": number (0-100),
-            "summary": "Short executive summary",
+            "criticalIssuesCount": number,
+            "warningsCount": number,
+            "summary": "One or two sentences summarizing the overall state.",
             "cro": {
-                "valueProp": "Analysis",
-                "ctaAudit": "Analysis",
-                "trustSignals": "Analysis"
+                "valuePropClarity": "Clear" or "Needs Improvement",
+                "valuePropTeaser": "One sentence summary of what the site sells/offers.",
+                "hasAboveFoldCTA": boolean,
+                "ctaAudit": "Short analysis of CTA visibility and wording."
             },
             "seo": {
-                "titleTag": "Analysis",
-                "metaDescription": "Analysis",
-                "h1Hierarchy": "Analysis"
+                "titleTag": "Analysis of presence and length",
+                "metaDescription": "Analysis of presence and length",
+                "h1Check": "Analysis of H1 usage (ideal is exactly one)."
             },
             "performance": {
-                "score": number,
-                "recommendations": ["list", "of", "strings"]
+                "loadTimeSec": "X.XXs",
+                "isResponsive": "Pass" or "Fail",
+                "cwvTeaser": "Pass/Fail teaser based on data."
             }
         }
 
@@ -61,15 +70,20 @@ async function callLLM(data) {
         Meta Description: ${data.metaDescription}
         Hero Text: ${data.heroText}
         H1s: ${data.h1s.join(', ')}
-        CTAs: ${data.buttons.join(', ')}
+        Above Fold CTAs: ${data.aboveFoldCTAs.join(', ')}
+        Has Above Fold CTA: ${data.hasAboveFoldCTA}
         Load Time: ${data.performance.loadTimeMs}ms
         Images without Alt: ${data.imagesWithoutAlt}/${data.totalImages}
+        Responsive (Heuristic): ${data.performance.isResponsive}
     `;
 
     try {
         const response = await axios.post('https://api.openai.com/v1/chat/completions', {
             model: "gpt-4o",
-            messages: [{ role: "system", content: "You are a helpful assistant that returns JSON." }, { role: "user", content: prompt }],
+            messages: [
+                { role: "system", content: "You are a professional web auditor that only outputs valid JSON." },
+                { role: "user", content: prompt }
+            ],
             response_format: { type: "json_object" }
         }, {
             headers: {

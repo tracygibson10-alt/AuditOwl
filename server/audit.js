@@ -7,6 +7,9 @@ async function extractSiteData(url) {
     });
     const page = await browser.newPage();
     
+    // Set viewport for "above the fold" check
+    await page.setViewport({ width: 1280, height: 800 });
+
     try {
         const startTime = Date.now();
         await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
@@ -20,9 +23,24 @@ async function extractSiteData(url) {
             const h1s = Array.from(document.querySelectorAll('h1')).map(el => el.innerText.trim());
             const heroText = h1s[0] || "";
 
-            // CTAs
-            const buttons = Array.from(document.querySelectorAll('button, a.btn, a.button')).map(el => el.innerText.trim()).filter(t => t.length > 0);
-            const allLinks = Array.from(document.querySelectorAll('a')).map(el => el.innerText.trim()).filter(t => t.length > 0);
+            // CTAs - Check if any button or CTA-like link is in the initial viewport
+            const isElementInViewport = (el) => {
+                const rect = el.getBoundingClientRect();
+                return (
+                    rect.top >= 0 &&
+                    rect.left >= 0 &&
+                    rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
+                    rect.right <= (window.innerWidth || document.documentElement.clientWidth)
+                );
+            };
+
+            const allButtons = Array.from(document.querySelectorAll('button, a.btn, a.button, a')).filter(el => {
+                const text = el.innerText.trim();
+                return text.length > 0 && text.length < 30; // Filter for CTA-like links
+            });
+
+            const aboveFoldCTAs = allButtons.filter(isElementInViewport).map(el => el.innerText.trim());
+            const hasAboveFoldCTA = aboveFoldCTAs.length > 0;
 
             // SEO Tags
             const h2s = Array.from(document.querySelectorAll('h2')).map(el => el.innerText.trim());
@@ -35,8 +53,8 @@ async function extractSiteData(url) {
                 heroText,
                 h1s,
                 h2s,
-                buttons,
-                allLinks: allLinks.slice(0, 20), // Limit links
+                hasAboveFoldCTA,
+                aboveFoldCTAs,
                 imagesWithoutAlt,
                 totalImages,
                 url: window.location.href
@@ -45,7 +63,12 @@ async function extractSiteData(url) {
 
         data.performance = {
             loadTimeMs: loadTime,
-            isResponsive: await page.evaluate(() => window.innerWidth > 0) // Basic check
+            // Basic responsive check: change viewport and see if scrollWidth matches
+            isResponsive: await page.evaluate(() => {
+                const originalWidth = document.documentElement.scrollWidth;
+                // This is a very basic heuristic
+                return originalWidth <= window.innerWidth;
+            })
         };
 
         await browser.close();
