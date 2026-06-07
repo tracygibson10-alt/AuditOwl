@@ -4,9 +4,110 @@ const cors = require('cors');
 const { extractSiteData } = require('./audit');
 const axios = require('axios');
 
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const crypto = require('crypto');
+const { execSync } = require('child_process');
+
 const app = express();
 app.use(cors());
+
+// Webhook needs raw body for signature verification
+app.post('/api/webhook', express.raw({type: 'application/json'}), async (req, res) => {
+    const sig = req.headers['stripe-signature'];
+    let event;
+
+    try {
+        event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+    } catch (err) {
+        // In development without real keys, we might want to skip verification or handle dummy events
+        console.warn('Webhook signature verification failed, but continuing for dev purposes if dummy key used');
+        // event = JSON.parse(req.body); // Uncomment for testing with raw JSON if needed
+        return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    if (event.type === 'checkout.session.completed') {
+        const session = event.data.object;
+        const auditId = session.metadata.auditId;
+        const url = session.metadata.url;
+
+        console.log(`Payment successful for audit ${auditId} (${url})`);
+        
+        // Update status to paid
+        try {
+            execSync(`team-db "UPDATE audits SET status = 'paid' WHERE id = '${auditId}'"`);
+            
+            // Trigger full audit generation (async)
+            // In a real app, this would be a background job
+            generateFullAudit(auditId, url).catch(console.error);
+        } catch (dbErr) {
+            console.error('Failed to update audit status:', dbErr);
+        }
+    }
+
+    res.json({received: true});
+});
+
 app.use(express.json());
+
+async function generateFullAudit(auditId, url) {
+    console.log(`Generating full deep-dive audit for ${url}...`);
+    const siteData = await extractSiteData(url);
+    
+    // Customize prompt for "Full Deep-Dive"
+    const prompt = `
+        You are an expert CRO and SEO auditor. Provide a COMPREHENSIVE "Full Deep-Dive" report.
+        ... (similar to callLLM but more detailed)
+    `;
+    
+    const auditResult = await callLLM(siteData); // Using existing callLLM for now, can expand later
+    auditResult.isFullReport = true;
+
+    try {
+        const dataStr = JSON.stringify(auditResult).replace(/'/g, "''");
+        execSync(`team-db "UPDATE audits SET status = 'completed', report_data = '${dataStr}' WHERE id = '${auditId}'"`);
+    } catch (dbErr) {
+        console.error('Failed to save full audit report:', dbErr);
+    }
+}
+
+app.post('/api/create-checkout-session', async (req, res) => {
+    const { url } = req.body;
+    if (!url) return res.status(400).json({ error: "URL is required" });
+
+    const auditId = crypto.randomUUID();
+    
+    try {
+        // Create pending audit in DB
+        execSync(`team-db "INSERT INTO audits (id, url, status) VALUES ('${auditId}', '${url}', 'pending')"`);
+
+        const session = await stripe.checkout.sessions.create({
+            payment_method_types: ['card'],
+            line_items: [{
+                price_data: {
+                    currency: 'usd',
+                    product_data: {
+                        name: 'AuditOwl Full Deep-Dive Audit',
+                        description: `Comprehensive audit for ${url}`,
+                    },
+                    unit_amount: 1900, // $19.00
+                },
+                quantity: 1,
+            }],
+            mode: 'payment',
+            success_url: `${req.headers.origin}/report/${auditId}?success=true`,
+            cancel_url: `${req.headers.origin}/?canceled=true`,
+            metadata: {
+                auditId: auditId,
+                url: url
+            }
+        });
+
+        res.json({ id: session.id, url: session.url });
+    } catch (error) {
+        console.error("Stripe session creation failed:", error);
+        res.status(500).json({ error: "Failed to create checkout session" });
+    }
+});
 
 const PORT = process.env.PORT || 3001;
 
@@ -107,10 +208,33 @@ app.post('/api/audit', async (req, res) => {
         console.log(`Auditing: ${url}`);
         const siteData = await extractSiteData(url);
         const auditResult = await callLLM(siteData);
-        res.json({ success: true, data: auditResult });
+        
+        const auditId = crypto.randomUUID();
+        const dataStr = JSON.stringify(auditResult).replace(/'/g, "''");
+        execSync(`team-db "INSERT INTO audits (id, url, status, report_data) VALUES ('${auditId}', '${url}', 'completed', '${dataStr}')"`);
+
+        res.json({ success: true, data: auditResult, id: auditId });
     } catch (error) {
         console.error("Audit failed:", error);
         res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/audit/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const out = execSync(`team-db "SELECT * FROM audits WHERE id = '${id}'"`).toString();
+        const rows = JSON.parse(out);
+        if (rows.length === 0) return res.status(404).json({ error: "Audit not found" });
+        
+        const audit = rows[0];
+        if (audit.report_data) {
+            audit.report_data = JSON.parse(audit.report_data);
+        }
+        res.json({ success: true, data: audit });
+    } catch (error) {
+        console.error("Failed to fetch audit:", error);
+        res.status(500).json({ error: "Failed to fetch audit" });
     }
 });
 
