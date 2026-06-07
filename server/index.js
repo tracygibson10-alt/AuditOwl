@@ -6,10 +6,27 @@ const axios = require('axios');
 
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const crypto = require('crypto');
-const { execSync } = require('child_process');
+const { spawnSync } = require('child_process');
 
 const app = express();
 app.use(cors());
+
+// Helper to run team-db queries safely
+function runQuery(sql) {
+    const result = spawnSync('team-db', [sql]);
+    if (result.status !== 0) {
+        const errorMsg = result.stderr.toString() || result.error?.message || 'Unknown team-db error';
+        console.error(`DB Error: ${errorMsg}\nQuery: ${sql}`);
+        throw new Error('Database operation failed');
+    }
+    const output = result.stdout.toString();
+    try {
+        return output ? JSON.parse(output) : [];
+    } catch (e) {
+        console.error(`Failed to parse team-db output: ${output}`);
+        return [];
+    }
+}
 
 // Webhook needs raw body for signature verification
 app.post('/api/webhook', express.raw({type: 'application/json'}), async (req, res) => {
@@ -17,7 +34,7 @@ app.post('/api/webhook', express.raw({type: 'application/json'}), async (req, re
     let event;
 
     try {
-        event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+        event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET || 'whsec_dummy');
     } catch (err) {
         // In development without real keys, we might want to skip verification or handle dummy events
         console.warn('Webhook signature verification failed, but continuing for dev purposes if dummy key used');
@@ -34,7 +51,7 @@ app.post('/api/webhook', express.raw({type: 'application/json'}), async (req, re
         
         // Update status to paid
         try {
-            execSync(`team-db "UPDATE audits SET status = 'paid' WHERE id = '${auditId}'"`);
+            runQuery(`UPDATE audits SET status = 'paid' WHERE id = '${auditId}'`);
             
             // Trigger full audit generation (async)
             // In a real app, this would be a background job
@@ -49,8 +66,11 @@ app.post('/api/webhook', express.raw({type: 'application/json'}), async (req, re
 
 app.use(express.json());
 
+const FULL_AUDIT_MODEL = process.env.FULL_AUDIT_MODEL || "gpt-4o";
+const MINI_AUDIT_MODEL = process.env.MINI_AUDIT_MODEL || "gpt-4o-mini";
+
 async function generateFullAudit(auditId, url) {
-    console.log(`Generating full deep-dive audit for ${url}...`);
+    console.log(`Generating full deep-dive audit for ${url}... using ${FULL_AUDIT_MODEL}`);
     const siteData = await extractSiteData(url);
     
     // Customize prompt for "Full Deep-Dive"
@@ -59,12 +79,12 @@ async function generateFullAudit(auditId, url) {
         ... (similar to callLLM but more detailed)
     `;
     
-    const auditResult = await callLLM(siteData); // Using existing callLLM for now, can expand later
+    const auditResult = await callLLM(siteData, FULL_AUDIT_MODEL); 
     auditResult.isFullReport = true;
 
     try {
         const dataStr = JSON.stringify(auditResult).replace(/'/g, "''");
-        execSync(`team-db "UPDATE audits SET status = 'completed', report_data = '${dataStr}' WHERE id = '${auditId}'"`);
+        runQuery(`UPDATE audits SET status = 'completed', report_data = '${dataStr}' WHERE id = '${auditId}'`);
     } catch (dbErr) {
         console.error('Failed to save full audit report:', dbErr);
     }
@@ -78,7 +98,7 @@ app.post('/api/create-checkout-session', async (req, res) => {
     
     try {
         // Create pending audit in DB
-        execSync(`team-db "INSERT INTO audits (id, url, status) VALUES ('${auditId}', '${url}', 'pending')"`);
+        runQuery(`INSERT INTO audits (id, url, status) VALUES ('${auditId}', '${url}', 'pending')`);
 
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
@@ -111,7 +131,7 @@ app.post('/api/create-checkout-session', async (req, res) => {
 
 const PORT = process.env.PORT || 3001;
 
-async function callLLM(data) {
+async function callLLM(data, model = MINI_AUDIT_MODEL) {
     if (!process.env.OPENAI_API_KEY) {
         console.warn("No OPENAI_API_KEY found, returning mock data.");
         return {
@@ -180,7 +200,7 @@ async function callLLM(data) {
 
     try {
         const response = await axios.post('https://api.openai.com/v1/chat/completions', {
-            model: "gpt-4o",
+            model: model,
             messages: [
                 { role: "system", content: "You are a professional web auditor that only outputs valid JSON." },
                 { role: "user", content: prompt }
@@ -211,20 +231,29 @@ app.post('/api/audit', async (req, res) => {
         
         const auditId = crypto.randomUUID();
         const dataStr = JSON.stringify(auditResult).replace(/'/g, "''");
-        execSync(`team-db "INSERT INTO audits (id, url, status, report_data) VALUES ('${auditId}', '${url}', 'completed', '${dataStr}')"`);
+        runQuery(`INSERT INTO audits (id, url, status, report_data) VALUES ('${auditId}', '${url}', 'completed', '${dataStr}')`);
 
         res.json({ success: true, data: auditResult, id: auditId });
     } catch (error) {
         console.error("Audit failed:", error);
-        res.status(500).json({ success: false, error: error.message });
+        res.status(500).json({ success: false, error: "Failed to perform audit" });
+    }
+});
+
+app.get('/api/audits', async (req, res) => {
+    try {
+        const rows = runQuery(`SELECT id, url, status, created_at FROM audits ORDER BY created_at DESC LIMIT 50`);
+        res.json({ success: true, data: rows });
+    } catch (error) {
+        console.error("Failed to list audits:", error);
+        res.status(500).json({ error: "Failed to list audits" });
     }
 });
 
 app.get('/api/audit/:id', async (req, res) => {
     const { id } = req.params;
     try {
-        const out = execSync(`team-db "SELECT * FROM audits WHERE id = '${id}'"`).toString();
-        const rows = JSON.parse(out);
+        const rows = runQuery(`SELECT * FROM audits WHERE id = '${id}'`);
         if (rows.length === 0) return res.status(404).json({ error: "Audit not found" });
         
         const audit = rows[0];
@@ -235,6 +264,51 @@ app.get('/api/audit/:id', async (req, res) => {
     } catch (error) {
         console.error("Failed to fetch audit:", error);
         res.status(500).json({ error: "Failed to fetch audit" });
+    }
+});
+
+app.get('/api/admin/stats', async (req, res) => {
+    // Simple protection via header for now (could be expanded)
+    const adminKey = req.headers['x-admin-key'];
+    if (adminKey !== (process.env.ADMIN_KEY || 'password123')) {
+        return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    try {
+        const allAudits = runQuery(`SELECT id, status, report_data, url FROM audits`);
+        let freeCount = 0;
+        let paidCount = 0;
+        let totalRevenue = 0;
+
+        allAudits.forEach(audit => {
+            let isFull = false;
+            if (audit.report_data) {
+                try {
+                    const data = JSON.parse(audit.report_data);
+                    if (data.isFullReport) isFull = true;
+                } catch (e) {}
+            }
+            
+            if (isFull || audit.status === 'paid') {
+                paidCount++;
+                totalRevenue += 19;
+            } else if (audit.status === 'completed') {
+                freeCount++;
+            }
+        });
+
+        res.json({
+            success: true,
+            stats: {
+                freeCount,
+                paidCount,
+                totalRevenue
+            },
+            recentAudits: allAudits.slice(-20).reverse() // Simple way for now
+        });
+    } catch (error) {
+        console.error("Admin stats failed:", error);
+        res.status(500).json({ error: "Failed to fetch admin stats" });
     }
 });
 

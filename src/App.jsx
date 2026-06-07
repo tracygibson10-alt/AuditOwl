@@ -7,7 +7,20 @@ function Landing() {
   const [url, setUrl] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [recentAudits, setRecentAudits] = useState([])
   const navigate = useNavigate()
+
+  useEffect(() => {
+    const saved = JSON.parse(localStorage.getItem('myAudits') || '[]')
+    if (saved.length > 0) {
+      // Fetch details for these audits to show on landing
+      Promise.all(saved.slice(0, 3).map(id => 
+        fetch(`${API_BASE}/api/audit/${id}`).then(res => res.json())
+      )).then(results => {
+        setRecentAudits(results.filter(r => r.success).map(r => r.data))
+      })
+    }
+  }, [])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -24,6 +37,9 @@ function Landing() {
       })
       const result = await response.json()
       if (result.success) {
+        // Save to local history
+        const saved = JSON.parse(localStorage.getItem('myAudits') || '[]')
+        localStorage.setItem('myAudits', JSON.stringify([result.id, ...saved]))
         navigate(`/report/${result.id}`)
       } else {
         setError(result.error || 'Failed to generate audit')
@@ -75,6 +91,24 @@ function Landing() {
       </div>
 
       {error && <p className="text-red-400 mb-8 font-medium">{error}</p>}
+
+      {recentAudits.length > 0 && (
+        <div className="mb-12 animate-in fade-in slide-in-from-bottom-4 duration-700">
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4">Your Recent Audits</p>
+          <div className="flex flex-wrap justify-center gap-4">
+            {recentAudits.map(audit => (
+              <button 
+                key={audit.id}
+                onClick={() => navigate(`/report/${audit.id}`)}
+                className="bg-slate-900/40 hover:bg-slate-800/60 border border-slate-800 px-4 py-2 rounded-xl text-sm font-medium text-slate-300 transition-all flex items-center gap-2"
+              >
+                <span className="truncate max-w-[150px]">{audit.url.replace('https://', '').replace('http://', '')}</span>
+                <span className="text-indigo-400">→</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-8 w-full max-w-4xl mt-12">
         <div className="flex flex-col gap-1">
@@ -306,6 +340,184 @@ function ReportPage() {
   )
 }
 
+function HistoryPage() {
+  const [audits, setAudits] = useState([])
+  const [loading, setLoading] = useState(true)
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/audits`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) setAudits(data.data)
+        setLoading(false)
+      })
+      .catch(() => setLoading(false))
+  }, [])
+
+  if (loading) return <div className="flex-1 flex items-center justify-center">Loading History...</div>
+
+  return (
+    <main className="w-full max-w-5xl px-6 py-12">
+      <h2 className="text-4xl font-bold mb-8">Audit History</h2>
+      <div className="bg-slate-900/50 border border-slate-800 rounded-3xl overflow-hidden">
+        {audits.length === 0 ? (
+          <div className="p-12 text-center text-slate-500">
+            No audits found yet. <button onClick={() => navigate('/')} className="text-indigo-400 underline">Run your first audit</button>
+          </div>
+        ) : (
+          <table className="w-full text-left">
+            <thead>
+              <tr className="border-b border-slate-800 text-xs font-bold text-slate-500 uppercase tracking-widest">
+                <th className="px-8 py-4">Website</th>
+                <th className="px-8 py-4">Status</th>
+                <th className="px-8 py-4">Date</th>
+                <th className="px-8 py-4">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800">
+              {audits.map(audit => (
+                <tr key={audit.id} className="hover:bg-slate-800/30 transition-colors">
+                  <td className="px-8 py-5 font-medium">{audit.url}</td>
+                  <td className="px-8 py-5">
+                    <span className={`text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider ${
+                      audit.status === 'completed' ? 'bg-green-500/10 text-green-400' : 
+                      audit.status === 'paid' ? 'bg-blue-500/10 text-blue-400' : 'bg-yellow-500/10 text-yellow-400'
+                    }`}>
+                      {audit.status}
+                    </span>
+                  </td>
+                  <td className="px-8 py-5 text-slate-500 text-sm">{new Date(audit.created_at).toLocaleDateString()}</td>
+                  <td className="px-8 py-5">
+                    <button 
+                      onClick={() => navigate(`/report/${audit.id}`)}
+                      className="text-indigo-400 hover:text-indigo-300 font-semibold text-sm"
+                    >
+                      View Report →
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </main>
+  )
+}
+
+function AdminDashboard() {
+  const [stats, setStats] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [key, setKey] = useState(localStorage.getItem('adminKey') || '')
+  const [authenticated, setAuthenticated] = useState(false)
+  const navigate = useNavigate()
+
+  const fetchStats = async (adminKey) => {
+    setLoading(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/stats`, {
+        headers: { 'x-admin-key': adminKey }
+      })
+      const data = await res.json()
+      if (data.success) {
+        setStats(data)
+        setAuthenticated(true)
+        localStorage.setItem('adminKey', adminKey)
+      } else {
+        setAuthenticated(false)
+      }
+    } catch (err) {
+      console.error("Failed to fetch stats", err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (key) fetchStats(key)
+    else setLoading(false)
+  }, [])
+
+  if (!authenticated) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-6">
+        <div className="bg-slate-900 p-8 rounded-3xl border border-slate-800 w-full max-w-md">
+          <h2 className="text-2xl font-bold mb-6">Admin Access</h2>
+          <input 
+            type="password" 
+            placeholder="Enter Admin Key" 
+            className="w-full bg-slate-950 border border-slate-800 p-3 rounded-xl mb-4 focus:ring-2 focus:ring-indigo-500 outline-none"
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && fetchStats(key)}
+          />
+          <button 
+            onClick={() => fetchStats(key)}
+            className="w-full bg-indigo-600 py-3 rounded-xl font-bold hover:bg-indigo-500 transition-colors"
+          >
+            Access Dashboard
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (loading) return <div className="flex-1 flex items-center justify-center">Loading Dashboard...</div>
+
+  return (
+    <main className="w-full max-w-6xl px-6 py-12">
+      <div className="flex justify-between items-center mb-12">
+        <h2 className="text-4xl font-bold">Admin Dashboard</h2>
+        <button onClick={() => { localStorage.removeItem('adminKey'); setAuthenticated(false); }} className="text-sm text-slate-500 hover:text-white">Logout</button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
+        <div className="bg-slate-900 border border-slate-800 p-8 rounded-3xl">
+          <div className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-2">Total Revenue</div>
+          <div className="text-4xl font-black text-green-400">${stats.stats.totalRevenue}</div>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 p-8 rounded-3xl">
+          <div className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-2">Paid Audits</div>
+          <div className="text-4xl font-black text-indigo-400">{stats.stats.paidCount}</div>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 p-8 rounded-3xl">
+          <div className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-2">Free Audits</div>
+          <div className="text-4xl font-black text-slate-400">{stats.stats.freeCount}</div>
+        </div>
+      </div>
+
+      <h3 className="text-xl font-bold mb-6">Recent Activity</h3>
+      <div className="bg-slate-900/50 border border-slate-800 rounded-3xl overflow-hidden">
+        <table className="w-full text-left">
+          <thead>
+            <tr className="border-b border-slate-800 text-xs font-bold text-slate-500 uppercase tracking-widest">
+              <th className="px-8 py-4">URL</th>
+              <th className="px-8 py-4">Status</th>
+              <th className="px-8 py-4">Action</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800">
+            {stats.recentAudits.map(audit => (
+              <tr key={audit.id} className="hover:bg-slate-800/30">
+                <td className="px-8 py-4 text-sm truncate max-w-xs">{audit.url}</td>
+                <td className="px-8 py-4">
+                  <span className={`text-[10px] font-bold px-2 py-1 rounded uppercase ${audit.status === 'completed' ? 'bg-green-500/10 text-green-400' : 'bg-blue-500/10 text-blue-400'}`}>
+                    {audit.status}
+                  </span>
+                </td>
+                <td className="px-8 py-4">
+                  <button onClick={() => navigate(`/report/${audit.id}`)} className="text-indigo-400 text-sm font-bold">View</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </main>
+  )
+}
+
 function App() {
   const navigate = useNavigate()
 
@@ -321,7 +533,7 @@ function App() {
         <div className="hidden md:flex gap-8 text-sm font-medium text-slate-400">
           <a href="/#features" className="hover:text-white transition-colors">Features</a>
           <a href="/#pricing" className="hover:text-white transition-colors">Pricing</a>
-          <a href="/#about" className="hover:text-white transition-colors">About</a>
+          <button onClick={() => navigate('/history')} className="hover:text-white transition-colors">History</button>
         </div>
         <button className="bg-slate-800 hover:bg-slate-700 text-white px-5 py-2 rounded-lg text-sm font-semibold transition-all">
           Sign In
@@ -331,6 +543,8 @@ function App() {
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/report/:id" element={<ReportPage />} />
+        <Route path="/history" element={<HistoryPage />} />
+        <Route path="/admin" element={<AdminDashboard />} />
       </Routes>
 
       <footer className="w-full max-w-7xl px-6 py-12 mt-auto flex flex-col md:flex-row justify-between items-center gap-6 text-slate-500 text-sm">
