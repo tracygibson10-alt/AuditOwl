@@ -70,6 +70,23 @@ app.use(express.json());
 const FULL_AUDIT_MODEL = process.env.FULL_AUDIT_MODEL || "gpt-4o";
 const MINI_AUDIT_MODEL = process.env.MINI_AUDIT_MODEL || "gpt-4o-mini";
 
+function calculateTrustScore(signals) {
+    let score = 0;
+    if (signals.hasSSL) score += 15;
+    if (signals.hasPhone) score += 15;
+    if (signals.hasAddress) score += 10;
+    if (signals.hasTrustBadges) score += 10;
+    if (signals.hasPaymentIcons) score += 10;
+    if (signals.hasReviews) score += 10;
+    if (signals.hasRefundPolicy) score += 5;
+    if (signals.hasPrivacyPolicy) score += 5;
+    if (signals.hasTerms) score += 5;
+    if (signals.hasSocialLinks) score += 5;
+    if (signals.hasAboutPage) score += 5;
+    if (signals.hasLiveChat) score += 5;
+    return score;
+}
+
 async function generateFullAudit(auditId, url) {
     console.log(`Generating full deep-dive audit for ${url}... using ${FULL_AUDIT_MODEL}`);
     const siteData = await extractSiteData(url);
@@ -133,13 +150,21 @@ app.post('/api/create-checkout-session', async (req, res) => {
 const PORT = process.env.PORT || 3001;
 
 async function callLLM(data, model = MINI_AUDIT_MODEL) {
+    const trustScore = calculateTrustScore(data.trustSignals || {});
+
     if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.includes('dummy')) {
         console.warn("No valid OPENAI_API_KEY found, returning mock data.");
         return {
             healthScore: 68,
-            criticalIssuesCount: 3,
+            trustScore: trustScore,
+            criticalIssuesCount: (data.trustSignals?.hasSSL ? 0 : 1) + (data.trustSignals?.hasPhone ? 0 : 1) + 2,
             warningsCount: 5,
             summary: "Your site has good potential but fails basic mobile and trust checks. High friction in the hero section is likely costing you conversions.",
+            trust: {
+                score: trustScore,
+                signals: data.trustSignals,
+                analysis: "Basic trust signals like SSL and Contact info are checked. Improving social proof and legal pages will boost your score."
+            },
             cro: {
                 valuePropClarity: "Needs Improvement",
                 valuePropTeaser: "The site appears to offer professional consulting services, but the benefits aren't immediately clear.",
@@ -165,9 +190,14 @@ async function callLLM(data, model = MINI_AUDIT_MODEL) {
         The report must follow this exact JSON structure:
         {
             "healthScore": number (0-100),
+            "trustScore": number (0-100),
             "criticalIssuesCount": number,
             "warningsCount": number,
             "summary": "One or two sentences summarizing the overall state.",
+            "trust": {
+                "score": number,
+                "analysis": "Short summary of trust signal strengths and weaknesses."
+            },
             "cro": {
                 "valuePropClarity": "Clear" or "Needs Improvement",
                 "valuePropTeaser": "One sentence summary of what the site sells/offers.",
@@ -197,6 +227,21 @@ async function callLLM(data, model = MINI_AUDIT_MODEL) {
         Load Time: ${data.performance.loadTimeMs}ms
         Images without Alt: ${data.imagesWithoutAlt}/${data.totalImages}
         Responsive (Heuristic): ${data.performance.isResponsive}
+
+        Trust Signals (Automated Checks):
+        - SSL/HTTPS: ${data.trustSignals.hasSSL}
+        - Phone Number: ${data.trustSignals.hasPhone}
+        - Physical Address/Map: ${data.trustSignals.hasAddress}
+        - Trust Badges: ${data.trustSignals.hasTrustBadges}
+        - Payment Icons: ${data.trustSignals.hasPaymentIcons}
+        - Reviews/Testimonials: ${data.trustSignals.hasReviews}
+        - Refund Policy: ${data.trustSignals.hasRefundPolicy}
+        - Privacy Policy: ${data.trustSignals.hasPrivacyPolicy}
+        - Terms of Service: ${data.trustSignals.hasTerms}
+        - Social Media Links: ${data.trustSignals.hasSocialLinks}
+        - About Us Page: ${data.trustSignals.hasAboutPage}
+        - Live Chat: ${data.trustSignals.hasLiveChat}
+        Calculated Trust Score: ${trustScore}/100
     `;
 
     try {

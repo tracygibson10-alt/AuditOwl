@@ -241,6 +241,11 @@ function ReportPage() {
           </div>
           <div className="w-px h-10 bg-slate-800 self-center"></div>
           <div className="text-center">
+            <div className="text-4xl font-black text-emerald-400">{reportData.trustScore || 0}</div>
+            <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Trust Score</div>
+          </div>
+          <div className="w-px h-10 bg-slate-800 self-center"></div>
+          <div className="text-center">
             <div className="text-4xl font-black text-red-400">{reportData.criticalIssuesCount}</div>
             <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Critical</div>
           </div>
@@ -298,6 +303,45 @@ function ReportPage() {
             <div className="flex justify-between items-center py-2 border-b border-slate-800">
               <span className="text-slate-400 font-medium">H1 Hierarchy</span>
               <span className="text-slate-200 font-semibold">{reportData.seo.h1Check}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-slate-900/40 border border-slate-800 p-8 rounded-3xl md:col-span-2">
+          <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
+            <span className="text-emerald-400">🛡️</span> Trust & Authority
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+            <div>
+              <div className="flex justify-between items-center mb-6">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Trust Analysis</span>
+                <span className="text-2xl font-black text-emerald-400">{reportData.trust?.score || reportData.trustScore || 0}/100</span>
+              </div>
+              <p className="text-slate-300 text-sm leading-relaxed mb-6">{reportData.trust?.analysis}</p>
+              
+              <div className="space-y-3">
+                {reportData.trust?.signals && Object.entries(reportData.trust.signals).map(([key, value]) => (
+                  <div key={key} className="flex items-center justify-between text-xs">
+                    <span className="text-slate-400 capitalize">{key.replace('has', '').replace(/([A-Z])/g, ' $1').trim()}</span>
+                    <span className={value ? 'text-emerald-400 font-bold' : 'text-slate-600'}>
+                      {value ? '✓ Found' : '× Missing'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            
+            <div className="bg-slate-950/30 p-6 rounded-2xl border border-slate-800/50 flex flex-col justify-center">
+              <h4 className="text-sm font-bold mb-4 text-slate-200">Why this matters:</h4>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Trust signals are the "digital handshake" of your website. Without visible proof of security, contactability, and social proof, visitors are 80% less likely to share their data or complete a purchase.
+              </p>
+              <div className="mt-6 pt-6 border-t border-slate-800/50">
+                <div className="flex items-center gap-2 text-xs font-bold text-indigo-400">
+                  <span>💡</span>
+                  <span>Priority Fix: {reportData.trust?.signals?.hasSSL ? (reportData.trust?.signals?.hasPhone ? 'Add Trust Badges' : 'Add Phone Number') : 'Enable HTTPS'}</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
