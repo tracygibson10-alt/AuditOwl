@@ -222,7 +222,17 @@ function ReportPage() {
             </span>
           </div>
           <h2 className="text-4xl font-bold mb-2">Website Audit Report</h2>
-          <p className="text-slate-400 font-mono text-sm">{report.url}</p>
+          <div className="flex flex-wrap items-center gap-4">
+            <p className="text-slate-400 font-mono text-sm">{report.url}</p>
+            <a 
+              href={`${API_BASE}/api/report/${id}/pdf`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="no-print bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all border border-slate-700"
+            >
+              <span>📥</span> Download PDF
+            </a>
+          </div>
         </div>
         <div className="flex gap-8 bg-slate-900/50 p-6 rounded-2xl border border-slate-800">
           <div className="text-center">
@@ -523,7 +533,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50 flex flex-col items-center selection:bg-indigo-500 selection:text-white pb-20">
-      <nav className="w-full max-w-7xl px-6 py-8 flex justify-between items-center">
+      <nav className="no-print w-full max-w-7xl px-6 py-8 flex justify-between items-center">
         <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/')}>
           <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center">
             <span className="text-2xl font-bold text-white">🦉</span>
@@ -547,7 +557,7 @@ function App() {
         <Route path="/admin" element={<AdminDashboard />} />
       </Routes>
 
-      <footer className="w-full max-w-7xl px-6 py-12 mt-auto flex flex-col md:flex-row justify-between items-center gap-6 text-slate-500 text-sm">
+      <footer className="no-print w-full max-w-7xl px-6 py-12 mt-auto flex flex-col md:flex-row justify-between items-center gap-6 text-slate-500 text-sm">
         <div className="flex items-center gap-2">
           <span className="font-bold text-slate-300">AuditOwl</span>
           <span>© 2024 AuditOwl. All rights reserved.</span>

@@ -7,6 +7,7 @@ const axios = require('axios');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
+const puppeteer = require('puppeteer');
 
 const app = express();
 app.use(cors());
@@ -132,8 +133,8 @@ app.post('/api/create-checkout-session', async (req, res) => {
 const PORT = process.env.PORT || 3001;
 
 async function callLLM(data, model = MINI_AUDIT_MODEL) {
-    if (!process.env.OPENAI_API_KEY) {
-        console.warn("No OPENAI_API_KEY found, returning mock data.");
+    if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.includes('dummy')) {
+        console.warn("No valid OPENAI_API_KEY found, returning mock data.");
         return {
             healthScore: 68,
             criticalIssuesCount: 3,
@@ -264,6 +265,73 @@ app.get('/api/audit/:id', async (req, res) => {
     } catch (error) {
         console.error("Failed to fetch audit:", error);
         res.status(500).json({ error: "Failed to fetch audit" });
+    }
+});
+
+app.get('/api/report/:id/pdf', async (req, res) => {
+    const { id } = req.params;
+    let browser;
+    try {
+        const rows = runQuery(`SELECT * FROM audits WHERE id = '${id}'`);
+        if (rows.length === 0) return res.status(404).json({ error: "Audit not found" });
+        
+        const audit = rows[0];
+        if (audit.status !== 'completed') {
+             return res.status(400).json({ error: "Report is not ready yet" });
+        }
+
+        browser = await puppeteer.launch({
+            args: ['--no-sandbox', '--disable-setuid-sandbox'],
+            headless: 'new'
+        });
+        const page = await browser.newPage();
+        
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+        await page.goto(`${frontendUrl}/report/${id}`, {
+            waitUntil: 'networkidle0',
+        });
+
+        // Add some CSS to hide elements we don't want in the PDF
+        await page.addStyleTag({
+            content: `
+                nav, footer, button, .no-print { display: none !important; }
+                main { padding-top: 0 !important; margin-top: 0 !important; width: 100% !important; max-width: 100% !important; }
+                body { background: white !important; color: black !important; }
+                .bg-slate-950 { background: white !important; }
+                .text-slate-50 { color: black !important; }
+                .bg-slate-900\\/50, .bg-slate-900\\/40, .bg-slate-950\\/50 { background: #f8fafc !important; border: 1px solid #e2e8f0 !important; }
+                .text-slate-400, .text-slate-300, .text-slate-500 { color: #64748b !important; }
+                .text-white { color: black !important; }
+                .border-slate-800 { border-color: #e2e8f0 !important; }
+                .from-indigo-600\\/20 { background: #eef2ff !important; }
+                .to-cyan-600\\/10 { background: #f0f9ff !important; }
+                .text-indigo-400 { color: #4f46e5 !important; }
+                .text-red-400 { color: #dc2626 !important; }
+                .text-green-400 { color: #16a34a !important; }
+                .bg-indigo-600 { background: #4f46e5 !important; color: white !important; }
+                .shadow-2xl, .shadow-xl, .shadow-lg { shadow: none !important; }
+            `
+        });
+
+        const pdfBuffer = await page.pdf({
+            format: 'A4',
+            printBackground: true,
+            margin: {
+                top: '15mm',
+                right: '15mm',
+                bottom: '15mm',
+                left: '15mm'
+            }
+        });
+
+        res.contentType("application/pdf");
+        res.setHeader('Content-Disposition', `attachment; filename=AuditOwl-Report-${id}.pdf`);
+        res.send(pdfBuffer);
+    } catch (error) {
+        console.error("PDF generation failed:", error);
+        res.status(500).json({ error: "Failed to generate PDF" });
+    } finally {
+        if (browser) await browser.close();
     }
 });
 
