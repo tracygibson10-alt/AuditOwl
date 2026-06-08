@@ -367,6 +367,45 @@ function ReportPage() {
         </div>
       </div>
 
+      <div className="bg-slate-900/40 border border-slate-800 p-8 rounded-3xl mb-12">
+        <h3 className="text-xl font-bold mb-8 flex items-center gap-2">
+          <span className="text-indigo-400">✅</span> Action Checklist & Fix-it Guides
+        </h3>
+        <div className="space-y-4">
+          {reportData.actionChecklist && reportData.actionChecklist.length > 0 ? (
+            reportData.actionChecklist.map((item, index) => (
+              <div key={index} className="bg-slate-950/40 border border-slate-800/50 rounded-2xl overflow-hidden">
+                <div className="p-6 flex flex-col md:flex-row gap-6">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3 mb-2">
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${
+                        item.priority === 'High' ? 'bg-red-500/10 text-red-400' : 
+                        item.priority === 'Medium' ? 'bg-yellow-500/10 text-yellow-400' : 'bg-blue-500/10 text-blue-400'
+                      }`}>
+                        {item.priority} Priority
+                      </span>
+                      <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">{item.category}</span>
+                    </div>
+                    <h4 className="text-lg font-bold text-white mb-2">{item.title}</h4>
+                    <p className="text-slate-400 text-sm mb-4">{item.issue}</p>
+                    <div className="bg-indigo-500/5 border border-indigo-500/10 p-4 rounded-xl">
+                      <h5 className="text-xs font-bold text-indigo-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                        <span>🛠️</span> How to fix:
+                      </h5>
+                      <div className="text-slate-300 text-sm whitespace-pre-wrap leading-relaxed">
+                        {item.fixStep}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))
+          ) : (
+            <p className="text-slate-500 text-center py-8 italic">No specific action items generated for this report.</p>
+          )}
+        </div>
+      </div>
+
       {!reportData.isFullReport && (
         <div className="bg-indigo-600 p-10 rounded-3xl text-center shadow-xl shadow-indigo-600/20">
           <h3 className="text-2xl font-bold mb-4">Want the full implementation roadmap?</h3>
