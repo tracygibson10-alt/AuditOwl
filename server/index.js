@@ -80,6 +80,14 @@ try {
     console.error("Warning: Could not load fix-it guides:", err.message);
 }
 
+// Load Industry Benchmarks
+let industryBenchmarks = "";
+try {
+    industryBenchmarks = fs.readFileSync('/home/team/shared/industry_benchmarks.md', 'utf8');
+} catch (err) {
+    console.error("Warning: Could not load industry benchmarks:", err.message);
+}
+
 function calculateTrustScore(signals) {
     let score = 0;
     if (signals.hasSSL) score += 15;
@@ -101,13 +109,7 @@ async function generateFullAudit(auditId, url) {
     console.log(`Generating full deep-dive audit for ${url}... using ${FULL_AUDIT_MODEL}`);
     const siteData = await extractSiteData(url);
     
-    // Customize prompt for "Full Deep-Dive"
-    const prompt = `
-        You are an expert CRO and SEO auditor. Provide a COMPREHENSIVE "Full Deep-Dive" report.
-        ... (similar to callLLM but more detailed)
-    `;
-    
-    const auditResult = await callLLM(siteData, FULL_AUDIT_MODEL); 
+    const auditResult = await callLLM(siteData, FULL_AUDIT_MODEL, true); 
     auditResult.isFullReport = true;
 
     try {
@@ -159,21 +161,21 @@ app.post('/api/create-checkout-session', async (req, res) => {
 
 const PORT = process.env.PORT || 3001;
 
-async function callLLM(data, model = MINI_AUDIT_MODEL) {
+async function callLLM(data, model = MINI_AUDIT_MODEL, isFull = false) {
     const trustScore = calculateTrustScore(data.trustSignals || {});
 
     if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.includes('dummy')) {
         console.warn("No valid OPENAI_API_KEY found, returning mock data.");
         return {
-            healthScore: 68,
+            healthScore: 72, 
             trustScore: trustScore,
             criticalIssuesCount: (data.trustSignals?.hasSSL ? 0 : 1) + (data.trustSignals?.hasPhone ? 0 : 1) + 2,
-            warningsCount: 5,
-            summary: "Your site has good potential but fails basic mobile and trust checks. High friction in the hero section is likely costing you conversions.",
+            warningsCount: 4,
+            summary: `Your site shows promise but lacks industry-standard trust signals and performance optimization. ${isFull ? "This full deep-dive identifies multiple high-impact friction points." : "Benchmarking against your sector suggests significant room for growth."}`,
             trust: {
                 score: trustScore,
                 signals: data.trustSignals,
-                analysis: "Basic trust signals like SSL and Contact info are checked. Improving social proof and legal pages will boost your score."
+                analysis: "Basic trust signals like SSL are present, but missing industry-specific social proof and authority badges are lowering your score relative to top competitors."
             },
             cro: {
                 valuePropClarity: "Needs Improvement",
@@ -204,7 +206,14 @@ async function callLLM(data, model = MINI_AUDIT_MODEL) {
     }
 
     const prompt = `
-        You are an expert CRO and SEO auditor for "AuditOwl". Provide a structured JSON "Free Mini-Audit" report based on the following website data.
+        You are an expert CRO and SEO auditor for "AuditOwl". Provide a structured JSON "${isFull ? 'Full Deep-Dive' : 'Free Mini-Audit'}" report based on the following website data.
+        
+        INSTRUCTIONS:
+        1. Categorize the website into one of the industries in the INDUSTRY BENCHMARKS.
+        2. Calculate the healthScore (0-100) based on CRO, SEO, and Performance metrics.
+        3. Calculate the trustScore (0-100) based on the presence of Trust Signals and sector-specific expectations.
+        4. Use the medians and friction points in the benchmarks to justify your scores in the 'summary' and 'analysis' fields.
+        5. Provide a prioritized action checklist using the REFERENCE GUIDES. ${isFull ? "For this Full Deep-Dive, provide at least 5-7 detailed action items." : "For this Free Mini-Audit, provide 2-3 key action items."}
         
         The report must follow this exact JSON structure:
         {
@@ -246,6 +255,9 @@ async function callLLM(data, model = MINI_AUDIT_MODEL) {
 
         REFERENCE GUIDES (Use these for the fixStep field):
         ${fixItGuides}
+
+        INDUSTRY BENCHMARKS (Use these to categorize the business and justify scores):
+        ${industryBenchmarks}
 
         Website Data:
         URL: ${data.url}
