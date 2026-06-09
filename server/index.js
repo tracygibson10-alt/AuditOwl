@@ -11,6 +11,19 @@ const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
 
+// Mock email sending function
+async function sendReportEmail(email, auditId, url) {
+    console.log(`\n==================================================`);
+    console.log(`[MOCK EMAIL] TO: ${email}`);
+    console.log(`[MOCK EMAIL] SUBJECT: Your AuditOwl Report for ${url}`);
+    console.log(`[MOCK EMAIL] BODY:`);
+    console.log(`Hello,\n\nYour AI-powered CRO and SEO audit for ${url} is ready.`);
+    console.log(`You can view your detailed report here: ${process.env.FRONTEND_URL || 'http://localhost:5173'}/report/${auditId}`);
+    console.log(`\nThank you for using AuditOwl!`);
+    console.log(`==================================================\n`);
+    return true;
+}
+
 const app = express();
 app.use(cors());
 
@@ -49,15 +62,19 @@ app.post('/api/webhook', express.raw({type: 'application/json'}), async (req, re
         const session = event.data.object;
         const auditId = session.metadata.auditId;
         const url = session.metadata.url;
+        const email = session.metadata.email;
 
-        console.log(`Payment successful for audit ${auditId} (${url})`);
+        console.log(`Payment successful for audit ${auditId} (${url}) for ${email || 'unknown'}`);
         
-        // Update status to paid
+        // Update status to paid and update email if provided
         try {
-            runQuery(`UPDATE audits SET status = 'paid' WHERE id = '${auditId}'`);
+            if (email) {
+                runQuery(`UPDATE audits SET status = 'paid', email = '${email}' WHERE id = '${auditId}'`);
+            } else {
+                runQuery(`UPDATE audits SET status = 'paid' WHERE id = '${auditId}'`);
+            }
             
             // Trigger full audit generation (async)
-            // In a real app, this would be a background job
             generateFullAudit(auditId, url).catch(console.error);
         } catch (dbErr) {
             console.error('Failed to update audit status:', dbErr);
@@ -121,17 +138,18 @@ async function generateFullAudit(auditId, url) {
 }
 
 app.post('/api/create-checkout-session', async (req, res) => {
-    const { url } = req.body;
+    const { url, email } = req.body;
     if (!url) return res.status(400).json({ error: "URL is required" });
 
     const auditId = crypto.randomUUID();
     
     try {
         // Create pending audit in DB
-        runQuery(`INSERT INTO audits (id, url, status) VALUES ('${auditId}', '${url}', 'pending')`);
+        runQuery(`INSERT INTO audits (id, url, email, status) VALUES ('${auditId}', '${url}', '${email || ''}', 'pending')`);
 
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
+            customer_email: email || undefined, // Pre-fill email in Stripe
             line_items: [{
                 price_data: {
                     currency: 'usd',
@@ -148,7 +166,8 @@ app.post('/api/create-checkout-session', async (req, res) => {
             cancel_url: `${req.headers.origin}/?canceled=true`,
             metadata: {
                 auditId: auditId,
-                url: url
+                url: url,
+                email: email || ""
             }
         });
 
@@ -310,17 +329,21 @@ async function callLLM(data, model = MINI_AUDIT_MODEL, isFull = false) {
 }
 
 app.post('/api/audit', async (req, res) => {
-    const { url } = req.body;
+    const { url, email } = req.body;
     if (!url) return res.status(400).json({ error: "URL is required" });
 
     try {
-        console.log(`Auditing: ${url}`);
+        console.log(`Auditing: ${url} (Email: ${email || 'none'})`);
         const siteData = await extractSiteData(url);
         const auditResult = await callLLM(siteData);
         
         const auditId = crypto.randomUUID();
         const dataStr = JSON.stringify(auditResult).replace(/'/g, "''");
-        runQuery(`INSERT INTO audits (id, url, status, report_data) VALUES ('${auditId}', '${url}', 'completed', '${dataStr}')`);
+        runQuery(`INSERT INTO audits (id, url, email, status, report_data) VALUES ('${auditId}', '${url}', '${email || ''}', 'completed', '${dataStr}')`);
+
+        if (email) {
+            sendReportEmail(email, auditId, url).catch(err => console.error("Email sending failed:", err));
+        }
 
         res.json({ success: true, data: auditResult, id: auditId });
     } catch (error) {
@@ -353,6 +376,30 @@ app.get('/api/audit/:id', async (req, res) => {
     } catch (error) {
         console.error("Failed to fetch audit:", error);
         res.status(500).json({ error: "Failed to fetch audit" });
+    }
+});
+
+app.post('/api/report/:id/email', async (req, res) => {
+    const { id } = req.params;
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: "Email is required" });
+
+    try {
+        const rows = runQuery(`SELECT * FROM audits WHERE id = '${id}'`);
+        if (rows.length === 0) return res.status(404).json({ error: "Audit not found" });
+        
+        const audit = rows[0];
+        await sendReportEmail(email, audit.id, audit.url);
+        
+        // Update email in DB if it was missing
+        if (!audit.email) {
+            runQuery(`UPDATE audits SET email = '${email}' WHERE id = '${id}'`);
+        }
+
+        res.json({ success: true, message: "Email sent successfully" });
+    } catch (error) {
+        console.error("Failed to send email:", error);
+        res.status(500).json({ error: "Failed to send email" });
     }
 });
 

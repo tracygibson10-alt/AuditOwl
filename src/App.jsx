@@ -5,6 +5,7 @@ const API_BASE = 'http://localhost:3001'
 
 function Landing() {
   const [url, setUrl] = useState('')
+  const [email, setEmail] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [recentAudits, setRecentAudits] = useState([])
@@ -33,7 +34,7 @@ function Landing() {
       const response = await fetch(`${API_BASE}/api/audit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url })
+        body: JSON.stringify({ url, email })
       })
       const result = await response.json()
       if (result.success) {
@@ -69,24 +70,40 @@ function Landing() {
         Get a comprehensive, AI-powered audit of your website's conversion rates and SEO in seconds. Actionable insights without the expensive consultant.
       </p>
 
-      <div className="w-full max-w-2xl bg-slate-900/50 p-2 rounded-2xl border border-slate-800 shadow-2xl backdrop-blur-sm mb-8">
-        <form onSubmit={handleSubmit} className="flex flex-col md:flex-row gap-2">
-          <input
-            type="url"
-            placeholder="https://yourwebsite.com"
-            required
-            disabled={loading}
-            className="flex-1 bg-transparent px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/50 text-lg disabled:opacity-50"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-          />
+      <div className="w-full max-w-3xl bg-slate-900/50 p-6 rounded-3xl border border-slate-800 shadow-2xl backdrop-blur-sm mb-8">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <div className="flex flex-col md:flex-row gap-3">
+            <input
+              type="url"
+              placeholder="https://yourwebsite.com"
+              required
+              disabled={loading}
+              className="flex-[2] bg-slate-950 border border-slate-800 px-6 py-4 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/50 text-lg disabled:opacity-50"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+            />
+            <input
+              type="email"
+              placeholder="your@email.com (Optional)"
+              disabled={loading}
+              className="flex-1 bg-slate-950 border border-slate-800 px-6 py-4 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/50 text-lg disabled:opacity-50"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
           <button
             type="submit"
             disabled={loading}
-            className="bg-indigo-600 hover:bg-indigo-500 text-white px-8 py-3 rounded-xl font-bold text-lg transition-all shadow-lg shadow-indigo-600/20 disabled:opacity-50 flex items-center justify-center min-w-[180px]"
+            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white px-8 py-4 rounded-2xl font-black text-xl transition-all shadow-lg shadow-indigo-600/20 disabled:opacity-50 flex items-center justify-center"
           >
-            {loading ? 'Analyzing...' : 'Run Free Audit'}
+            {loading ? (
+              <div className="flex items-center gap-3">
+                <div className="w-5 h-5 border-3 border-white border-t-transparent rounded-full animate-spin"></div>
+                <span>Analyzing Site...</span>
+              </div>
+            ) : 'Run Free Audit Now'}
           </button>
+          <p className="text-slate-500 text-xs mt-2">Enter your email to receive a copy of your report automatically.</p>
         </form>
       </div>
 
@@ -138,6 +155,9 @@ function ReportPage() {
   const [report, setReport] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [emailInput, setEmailInput] = useState('')
+  const [emailSending, setEmailSending] = useState(false)
+  const [emailSent, setEmailSent] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -147,6 +167,7 @@ function ReportPage() {
         const data = await res.json()
         if (data.success) {
           setReport(data.data)
+          if (data.data.email) setEmailInput(data.data.email)
         } else {
           setError(data.error)
         }
@@ -159,12 +180,29 @@ function ReportPage() {
     fetchReport()
   }, [id])
 
+  const handleSendEmail = async () => {
+    if (!emailInput) return
+    setEmailSending(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/report/${id}/email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailInput })
+      })
+      if (res.ok) setEmailSent(true)
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setEmailSending(false)
+    }
+  }
+
   const handleUpgrade = async () => {
     try {
       const res = await fetch(`${API_BASE}/api/create-checkout-session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: report.url })
+        body: JSON.stringify({ url: report.url, email: report.email || emailInput })
       })
       const session = await res.json()
       if (session.url) {
@@ -249,6 +287,29 @@ function ReportPage() {
             <div className="text-4xl font-black text-red-400">{reportData.criticalIssuesCount}</div>
             <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Critical</div>
           </div>
+        </div>
+      </div>
+
+      <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl mb-12 flex flex-col md:flex-row items-center gap-6">
+        <div className="flex-1 text-left">
+          <h4 className="text-lg font-bold text-white mb-1">Save this report to your inbox</h4>
+          <p className="text-slate-400 text-sm">We'll send you a permanent link and a PDF copy of this audit.</p>
+        </div>
+        <div className="flex gap-2 w-full md:w-auto">
+          <input 
+            type="email" 
+            placeholder="your@email.com"
+            value={emailInput}
+            onChange={(e) => setEmailInput(e.target.value)}
+            className="flex-1 md:w-64 bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/50 text-sm"
+          />
+          <button 
+            onClick={handleSendEmail}
+            disabled={emailSending || emailSent}
+            className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 rounded-xl text-sm font-bold transition-all disabled:opacity-50 min-w-[120px]"
+          >
+            {emailSending ? 'Sending...' : emailSent ? 'Sent! ✓' : 'Send Report'}
+          </button>
         </div>
       </div>
 
