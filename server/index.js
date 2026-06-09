@@ -8,6 +8,8 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const puppeteer = require('puppeteer');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 app.use(cors());
@@ -69,6 +71,14 @@ app.use(express.json());
 
 const FULL_AUDIT_MODEL = process.env.FULL_AUDIT_MODEL || "gpt-4o";
 const MINI_AUDIT_MODEL = process.env.MINI_AUDIT_MODEL || "gpt-4o-mini";
+
+// Load Fix-it Guides
+let fixItGuides = "";
+try {
+    fixItGuides = fs.readFileSync('/home/team/shared/detailed_fixit_guides.md', 'utf8');
+} catch (err) {
+    console.error("Warning: Could not load fix-it guides:", err.message);
+}
 
 function calculateTrustScore(signals) {
     let score = 0;
@@ -180,7 +190,16 @@ async function callLLM(data, model = MINI_AUDIT_MODEL) {
                 loadTimeSec: (data.performance.loadTimeMs / 1000).toFixed(2),
                 isResponsive: data.performance.isResponsive ? "Pass" : "Fail",
                 cwvTeaser: "Fail (LCP is likely high based on heavy images)"
-            }
+            },
+            actionChecklist: [
+                {
+                    title: "Enable HTTPS",
+                    category: "Trust",
+                    issue: "Site is not using a secure connection.",
+                    fixStep: "Install an SSL certificate. If using WordPress, use the Really Simple SSL plugin.",
+                    priority: "High"
+                }
+            ]
         };
     }
 
@@ -213,8 +232,20 @@ async function callLLM(data, model = MINI_AUDIT_MODEL) {
                 "loadTimeSec": "X.XXs",
                 "isResponsive": "Pass" or "Fail",
                 "cwvTeaser": "Pass/Fail teaser based on data."
-            }
+            },
+            "actionChecklist": [
+                {
+                    "title": "Short title of the fix (e.g., Enable HTTPS)",
+                    "category": "Trust", "CRO", "SEO", or "Performance",
+                    "issue": "Brief description of the problem.",
+                    "fixStep": "Step-by-step instructions based on the Fix-it Guides provided.",
+                    "priority": "High", "Medium", or "Low"
+                }
+            ]
         }
+
+        REFERENCE GUIDES (Use these for the fixStep field):
+        ${fixItGuides}
 
         Website Data:
         URL: ${data.url}
@@ -344,9 +375,10 @@ app.get('/api/report/:id/pdf', async (req, res) => {
                 body { background: white !important; color: black !important; }
                 .bg-slate-950 { background: white !important; }
                 .text-slate-50 { color: black !important; }
-                .bg-slate-900\\/50, .bg-slate-900\\/40, .bg-slate-950\\/50 { background: #f8fafc !important; border: 1px solid #e2e8f0 !important; }
-                .text-slate-400, .text-slate-300, .text-slate-500 { color: #64748b !important; }
-                .text-white { color: black !important; }
+                .bg-slate-900\\/50, .bg-slate-900\\/40, .bg-slate-950\\/50, .bg-slate-950\\/40 { background: #f8fafc !important; border: 1px solid #e2e8f0 !important; }
+                .bg-indigo-500\\/5 { background: #f5f7ff !important; border: 1px solid #e0e7ff !important; }
+                .text-slate-400, .text-slate-300, .text-slate-500, .text-slate-200 { color: #64748b !important; }
+
                 .border-slate-800 { border-color: #e2e8f0 !important; }
                 .from-indigo-600\\/20 { background: #eef2ff !important; }
                 .to-cyan-600\\/10 { background: #f0f9ff !important; }
