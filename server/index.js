@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const { extractSiteData } = require('./audit');
 const axios = require('axios');
+const { queueAuditEmail } = require('./emailService');
 
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const crypto = require('crypto');
@@ -11,18 +12,7 @@ const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
 
-// Mock email sending function
-async function sendReportEmail(email, auditId, url) {
-    console.log(`\n==================================================`);
-    console.log(`[MOCK EMAIL] TO: ${email}`);
-    console.log(`[MOCK EMAIL] SUBJECT: Your AuditOwl Report for ${url}`);
-    console.log(`[MOCK EMAIL] BODY:`);
-    console.log(`Hello,\n\nYour AI-powered CRO and SEO audit for ${url} is ready.`);
-    console.log(`You can view your detailed report here: ${process.env.FRONTEND_URL || 'http://localhost:5173'}/report/${auditId}`);
-    console.log(`\nThank you for using AuditOwl!`);
-    console.log(`==================================================\n`);
-    return true;
-}
+// Removed mock sendReportEmail as we now use queueAuditEmail from emailService.js
 
 const app = express();
 app.use(cors());
@@ -132,6 +122,12 @@ async function generateFullAudit(auditId, url) {
     try {
         const dataStr = JSON.stringify(auditResult).replace(/'/g, "''");
         runQuery(`UPDATE audits SET status = 'completed', report_data = '${dataStr}' WHERE id = '${auditId}'`);
+        
+        // Fetch email to send notification
+        const auditRows = runQuery(`SELECT email, url FROM audits WHERE id = '${auditId}'`);
+        if (auditRows.length > 0 && auditRows[0].email) {
+            await queueAuditEmail(auditRows[0].email, auditId, auditRows[0].url, true);
+        }
     } catch (dbErr) {
         console.error('Failed to save full audit report:', dbErr);
     }
@@ -340,9 +336,9 @@ app.post('/api/audit', async (req, res) => {
         const auditId = crypto.randomUUID();
         const dataStr = JSON.stringify(auditResult).replace(/'/g, "''");
         runQuery(`INSERT INTO audits (id, url, email, status, report_data) VALUES ('${auditId}', '${url}', '${email || ''}', 'completed', '${dataStr}')`);
-
+        
         if (email) {
-            sendReportEmail(email, auditId, url).catch(err => console.error("Email sending failed:", err));
+            await queueAuditEmail(email, auditId, url, false);
         }
 
         res.json({ success: true, data: auditResult, id: auditId });
@@ -389,7 +385,8 @@ app.post('/api/report/:id/email', async (req, res) => {
         if (rows.length === 0) return res.status(404).json({ error: "Audit not found" });
         
         const audit = rows[0];
-        await sendReportEmail(email, audit.id, audit.url);
+        const isFull = audit.status === 'paid' || (audit.report_data && JSON.parse(audit.report_data).isFullReport);
+        await queueAuditEmail(email, audit.id, audit.url, isFull);
         
         // Update email in DB if it was missing
         if (!audit.email) {
