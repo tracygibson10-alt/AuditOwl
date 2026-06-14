@@ -32,7 +32,7 @@ async function processQueue() {
             console.log(`Email ${email.id} marked as sent.`);
         } else {
             console.error(`Failed to send email ${email.id}`);
-            // We could update status to 'failed' or just let it retry
+            runQuery(`UPDATE email_queue SET status = 'failed' WHERE id = '${email.id}'`);
         }
     }
 }
