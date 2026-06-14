@@ -1,25 +1,76 @@
 const { spawnSync } = require('child_process');
 const crypto = require('crypto');
+const { Resend } = require('resend');
 
-// Helper to run team-db queries safely
-function runQuery(sql) {
-    const result = spawnSync('team-db', [sql]);
-    if (result.status !== 0) {
-        const errorMsg = result.stderr.toString() || result.error?.message || 'Unknown team-db error';
-        console.error(`DB Error: ${errorMsg}\nQuery: ${sql}`);
-        throw new Error('Database operation failed');
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+// Helper to run team-db queries safely with retries
+function runQuery(sql, retries = 3) {
+    let lastError;
+    for (let i = 0; i < retries; i++) {
+        const result = spawnSync('team-db', [sql]);
+        if (result.status === 0) {
+            const output = result.stdout.toString();
+            try {
+                return output ? JSON.parse(output) : [];
+            } catch (e) {
+                console.error(`Failed to parse team-db output: ${output}`);
+                return [];
+            }
+        }
+        lastError = result.stderr.toString() || result.error?.message || 'Unknown team-db error';
+        if (lastError.includes('locked')) {
+            console.log(`DB locked, retrying (${i + 1}/${retries})...`);
+            spawnSync('sleep', ['0.5']); // Small delay
+            continue;
+        }
+        break;
     }
-    const output = result.stdout.toString();
+    console.error(`DB Error after ${retries} retries: ${lastError}\nQuery: ${sql}`);
+    throw new Error('Database operation failed');
+}
+
+async function sendEmail(to, subject, body) {
+    let sender = 'reports@auditowl.com';
     try {
-        return output ? JSON.parse(output) : [];
-    } catch (e) {
-        console.error(`Failed to parse team-db output: ${output}`);
-        return [];
+        console.log(`[RESEND] Sending email to ${to}...`);
+        const { data, error } = await resend.emails.send({
+            from: 'AuditOwl <reports@auditowl.com>',
+            to: [to],
+            subject: subject,
+            text: body,
+        });
+
+        if (error) {
+            console.error('[RESEND ERROR]', error);
+            // If it's a domain validation error, we might need to use the default onboard@resend.dev
+            if (error.message && error.message.includes('not verified')) {
+                console.log('[RESEND] Attempting fallback to onboarding@resend.dev...');
+                sender = 'onboarding@resend.dev';
+                const fallback = await resend.emails.send({
+                    from: 'onboarding@resend.dev',
+                    to: [to],
+                    subject: subject,
+                    text: body,
+                });
+                if (fallback.error) {
+                    console.error('[RESEND FALLBACK ERROR]', fallback.error);
+                    throw fallback.error;
+                }
+            } else {
+                throw error;
+            }
+        }
+        console.log(`[RESEND] Email sent successfully to ${to} (Sender: ${sender})`);
+        return { success: true, sender };
+    } catch (err) {
+        console.error('[RESEND FAILED]', err.message);
+        return { success: false, sender };
     }
 }
 
 async function queueAuditEmail(email, auditId, url, isFull = false) {
-    const reportUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/report/${auditId}`;
+    const reportUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/report/${auditId}`;
     const pdfUrl = `${process.env.API_BASE || 'http://localhost:3001'}/api/report/${auditId}/pdf`;
     
     let subject, body;
@@ -65,7 +116,16 @@ The AuditOwl Team`;
     runQuery(`INSERT INTO email_queue (id, to_email, subject, body, status) VALUES ('${id}', '${email}', '${safeSubject}', '${safeBody}', 'pending')`);
     
     console.log(`Email queued for ${email} (Audit: ${auditId}, Type: ${isFull ? 'Full' : 'Mini'})`);
+    
+    // Attempt to send immediately
+    const { success, sender } = await sendEmail(email, subject, body);
+    if (success) {
+        runQuery(`UPDATE email_queue SET status = 'sent', sender = '${sender}' WHERE id = '${id}'`);
+    } else {
+        runQuery(`UPDATE email_queue SET status = 'failed', sender = '${sender}' WHERE id = '${id}'`);
+    }
+
     return id;
 }
 
-module.exports = { queueAuditEmail };
+module.exports = { queueAuditEmail, sendEmail };

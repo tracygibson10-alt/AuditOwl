@@ -1,4 +1,8 @@
 const { spawnSync } = require('child_process');
+const path = require('path');
+// Load env from server directory
+require('dotenv').config({ path: path.join(__dirname, '../server/.env') });
+const { sendEmail } = require('../server/emailService');
 
 function runQuery(sql) {
     const result = spawnSync('team-db', [sql]);
@@ -13,10 +17,23 @@ function runQuery(sql) {
     }
 }
 
-const pending = runQuery("SELECT * FROM email_queue WHERE status = 'pending'");
-if (pending.length === 0) {
-    console.log("No pending emails.");
-    process.exit(0);
+async function processQueue() {
+    const pending = runQuery("SELECT * FROM email_queue WHERE status = 'pending' LIMIT 5");
+    if (pending.length === 0) {
+        console.log("No pending emails.");
+        return;
+    }
+
+    console.log(`Processing ${pending.length} pending emails...`);
+    for (const email of pending) {
+        const sent = await sendEmail(email.to_email, email.subject, email.body);
+        if (sent) {
+            runQuery(`UPDATE email_queue SET status = 'sent' WHERE id = '${email.id}'`);
+            console.log(`Email ${email.id} marked as sent.`);
+        } else {
+            console.error(`Failed to send email ${email.id}`);
+        }
+    }
 }
 
-console.log(JSON.stringify(pending, null, 2));
+processQueue().catch(console.error);
