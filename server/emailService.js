@@ -4,24 +4,34 @@ const { Resend } = require('resend');
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// Helper to run team-db queries safely
-function runQuery(sql) {
-    const result = spawnSync('team-db', [sql]);
-    if (result.status !== 0) {
-        const errorMsg = result.stderr.toString() || result.error?.message || 'Unknown team-db error';
-        console.error(`DB Error: ${errorMsg}\nQuery: ${sql}`);
-        throw new Error('Database operation failed');
+// Helper to run team-db queries safely with retries
+function runQuery(sql, retries = 3) {
+    let lastError;
+    for (let i = 0; i < retries; i++) {
+        const result = spawnSync('team-db', [sql]);
+        if (result.status === 0) {
+            const output = result.stdout.toString();
+            try {
+                return output ? JSON.parse(output) : [];
+            } catch (e) {
+                console.error(`Failed to parse team-db output: ${output}`);
+                return [];
+            }
+        }
+        lastError = result.stderr.toString() || result.error?.message || 'Unknown team-db error';
+        if (lastError.includes('locked')) {
+            console.log(`DB locked, retrying (${i + 1}/${retries})...`);
+            spawnSync('sleep', ['0.5']); // Small delay
+            continue;
+        }
+        break;
     }
-    const output = result.stdout.toString();
-    try {
-        return output ? JSON.parse(output) : [];
-    } catch (e) {
-        console.error(`Failed to parse team-db output: ${output}`);
-        return [];
-    }
+    console.error(`DB Error after ${retries} retries: ${lastError}\nQuery: ${sql}`);
+    throw new Error('Database operation failed');
 }
 
 async function sendEmail(to, subject, body) {
+    let sender = 'reports@auditowl.com';
     try {
         console.log(`[RESEND] Sending email to ${to}...`);
         const { data, error } = await resend.emails.send({
@@ -36,6 +46,7 @@ async function sendEmail(to, subject, body) {
             // If it's a domain validation error, we might need to use the default onboard@resend.dev
             if (error.message && error.message.includes('not verified')) {
                 console.log('[RESEND] Attempting fallback to onboarding@resend.dev...');
+                sender = 'onboarding@resend.dev';
                 const fallback = await resend.emails.send({
                     from: 'onboarding@resend.dev',
                     to: [to],
@@ -50,11 +61,11 @@ async function sendEmail(to, subject, body) {
                 throw error;
             }
         }
-        console.log(`[RESEND] Email sent successfully to ${to}`);
-        return true;
+        console.log(`[RESEND] Email sent successfully to ${to} (Sender: ${sender})`);
+        return { success: true, sender };
     } catch (err) {
         console.error('[RESEND FAILED]', err.message);
-        return false;
+        return { success: false, sender };
     }
 }
 
@@ -107,9 +118,11 @@ The AuditOwl Team`;
     console.log(`Email queued for ${email} (Audit: ${auditId}, Type: ${isFull ? 'Full' : 'Mini'})`);
     
     // Attempt to send immediately
-    const sent = await sendEmail(email, subject, body);
-    if (sent) {
-        runQuery(`UPDATE email_queue SET status = 'sent' WHERE id = '${id}'`);
+    const { success, sender } = await sendEmail(email, subject, body);
+    if (success) {
+        runQuery(`UPDATE email_queue SET status = 'sent', sender = '${sender}' WHERE id = '${id}'`);
+    } else {
+        runQuery(`UPDATE email_queue SET status = 'failed', sender = '${sender}' WHERE id = '${id}'`);
     }
 
     return id;
