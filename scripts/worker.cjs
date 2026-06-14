@@ -7,7 +7,8 @@ const { sendEmail } = require('../server/emailService');
 function runQuery(sql) {
     const result = spawnSync('team-db', [sql]);
     if (result.status !== 0) {
-        process.exit(1);
+        // Just return empty if DB fails temporarily
+        return [];
     }
     const output = result.stdout.toString();
     try {
@@ -18,13 +19,12 @@ function runQuery(sql) {
 }
 
 async function processQueue() {
-    const pending = runQuery("SELECT * FROM email_queue WHERE status = 'pending' LIMIT 5");
+    const pending = runQuery("SELECT * FROM email_queue WHERE status = 'pending' LIMIT 10");
     if (pending.length === 0) {
-        console.log("No pending emails.");
         return;
     }
 
-    console.log(`Processing ${pending.length} pending emails...`);
+    console.log(`[${new Date().toISOString()}] Processing ${pending.length} pending emails...`);
     for (const email of pending) {
         const sent = await sendEmail(email.to_email, email.subject, email.body);
         if (sent) {
@@ -32,8 +32,22 @@ async function processQueue() {
             console.log(`Email ${email.id} marked as sent.`);
         } else {
             console.error(`Failed to send email ${email.id}`);
+            // We could update status to 'failed' or just let it retry
         }
     }
 }
 
-processQueue().catch(console.error);
+async function start() {
+    console.log(`[${new Date().toISOString()}] Email worker started.`);
+    while (true) {
+        try {
+            await processQueue();
+        } catch (err) {
+            console.error("Worker error:", err);
+        }
+        // Sleep for 30 seconds
+        await new Promise(resolve => setTimeout(resolve, 30000));
+    }
+}
+
+start();

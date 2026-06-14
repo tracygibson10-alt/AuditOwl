@@ -1,5 +1,8 @@
 const { spawnSync } = require('child_process');
 const crypto = require('crypto');
+const { Resend } = require('resend');
+
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 // Helper to run team-db queries safely
 function runQuery(sql) {
@@ -18,8 +21,45 @@ function runQuery(sql) {
     }
 }
 
+async function sendEmail(to, subject, body) {
+    try {
+        console.log(`[RESEND] Sending email to ${to}...`);
+        const { data, error } = await resend.emails.send({
+            from: 'AuditOwl <reports@auditowl.com>',
+            to: [to],
+            subject: subject,
+            text: body,
+        });
+
+        if (error) {
+            console.error('[RESEND ERROR]', error);
+            // If it's a domain validation error, we might need to use the default onboard@resend.dev
+            if (error.message && error.message.includes('not verified')) {
+                console.log('[RESEND] Attempting fallback to onboarding@resend.dev...');
+                const fallback = await resend.emails.send({
+                    from: 'onboarding@resend.dev',
+                    to: [to],
+                    subject: subject,
+                    text: body,
+                });
+                if (fallback.error) {
+                    console.error('[RESEND FALLBACK ERROR]', fallback.error);
+                    throw fallback.error;
+                }
+            } else {
+                throw error;
+            }
+        }
+        console.log(`[RESEND] Email sent successfully to ${to}`);
+        return true;
+    } catch (err) {
+        console.error('[RESEND FAILED]', err.message);
+        return false;
+    }
+}
+
 async function queueAuditEmail(email, auditId, url, isFull = false) {
-    const reportUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/report/${auditId}`;
+    const reportUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/report/${auditId}`;
     const pdfUrl = `${process.env.API_BASE || 'http://localhost:3001'}/api/report/${auditId}/pdf`;
     
     let subject, body;
@@ -65,7 +105,14 @@ The AuditOwl Team`;
     runQuery(`INSERT INTO email_queue (id, to_email, subject, body, status) VALUES ('${id}', '${email}', '${safeSubject}', '${safeBody}', 'pending')`);
     
     console.log(`Email queued for ${email} (Audit: ${auditId}, Type: ${isFull ? 'Full' : 'Mini'})`);
+    
+    // Attempt to send immediately
+    const sent = await sendEmail(email, subject, body);
+    if (sent) {
+        runQuery(`UPDATE email_queue SET status = 'sent' WHERE id = '${id}'`);
+    }
+
     return id;
 }
 
-module.exports = { queueAuditEmail };
+module.exports = { queueAuditEmail, sendEmail };

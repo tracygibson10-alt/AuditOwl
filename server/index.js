@@ -53,6 +53,7 @@ app.post('/api/webhook', express.raw({type: 'application/json'}), async (req, re
         const auditId = session.metadata.auditId;
         const url = session.metadata.url;
         const email = session.metadata.email;
+        const freeAuditId = session.metadata.freeAuditId;
 
         console.log(`Payment successful for audit ${auditId} (${url}) for ${email || 'unknown'}`);
         
@@ -64,6 +65,13 @@ app.post('/api/webhook', express.raw({type: 'application/json'}), async (req, re
                 runQuery(`UPDATE audits SET status = 'paid' WHERE id = '${auditId}'`);
             }
             
+            // Record conversion if linked to a free audit
+            if (freeAuditId) {
+                const convId = crypto.randomUUID();
+                runQuery(`INSERT INTO conversions (id, free_audit_id, paid_audit_id, url) VALUES ('${convId}', '${freeAuditId}', '${auditId}', '${url}')`);
+                console.log(`Conversion recorded: ${freeAuditId} -> ${auditId}`);
+            }
+
             // Trigger full audit generation (async)
             generateFullAudit(auditId, url).catch(console.error);
         } catch (dbErr) {
@@ -134,7 +142,7 @@ async function generateFullAudit(auditId, url) {
 }
 
 app.post('/api/create-checkout-session', async (req, res) => {
-    const { url, email } = req.body;
+    const { url, email, freeAuditId } = req.body;
     if (!url) return res.status(400).json({ error: "URL is required" });
 
     const auditId = crypto.randomUUID();
@@ -163,7 +171,8 @@ app.post('/api/create-checkout-session', async (req, res) => {
             metadata: {
                 auditId: auditId,
                 url: url,
-                email: email || ""
+                email: email || "",
+                freeAuditId: freeAuditId || ""
             }
         });
 
@@ -477,6 +486,9 @@ app.get('/api/admin/stats', async (req, res) => {
 
     try {
         const allAudits = runQuery(`SELECT id, status, report_data, url FROM audits`);
+        const conversionRows = runQuery(`SELECT COUNT(*) as count FROM conversions`);
+        const conversionCount = conversionRows[0]?.count || 0;
+        
         let freeCount = 0;
         let paidCount = 0;
         let totalRevenue = 0;
@@ -503,7 +515,8 @@ app.get('/api/admin/stats', async (req, res) => {
             stats: {
                 freeCount,
                 paidCount,
-                totalRevenue
+                totalRevenue,
+                conversionCount
             },
             recentAudits: allAudits.slice(-20).reverse() // Simple way for now
         });

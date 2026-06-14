@@ -202,7 +202,11 @@ function ReportPage() {
       const res = await fetch(`${API_BASE}/api/create-checkout-session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: report.url, email: report.email || emailInput })
+        body: JSON.stringify({ 
+          url: report.url, 
+          email: report.email || emailInput,
+          freeAuditId: id 
+        })
       })
       const session = await res.json()
       if (session.url) {
@@ -626,7 +630,7 @@ function AdminDashboard() {
         <button onClick={() => { localStorage.removeItem('adminKey'); setAuthenticated(false); }} className="text-sm text-slate-500 hover:text-white">Logout</button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-12">
         <div className="bg-slate-900 border border-slate-800 p-8 rounded-3xl">
           <div className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-2">Total Revenue</div>
           <div className="text-4xl font-black text-green-400">${stats.stats.totalRevenue}</div>
@@ -638,6 +642,13 @@ function AdminDashboard() {
         <div className="bg-slate-900 border border-slate-800 p-8 rounded-3xl">
           <div className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-2">Free Audits</div>
           <div className="text-4xl font-black text-slate-400">{stats.stats.freeCount}</div>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 p-8 rounded-3xl">
+          <div className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-2">Conv. Rate</div>
+          <div className="text-4xl font-black text-cyan-400">
+            {stats.stats.freeCount > 0 ? ((stats.stats.conversionCount / stats.stats.freeCount) * 100).toFixed(1) : 0}%
+          </div>
+          <div className="text-[10px] text-slate-500 mt-2 font-bold uppercase">{stats.stats.conversionCount} Upgrades</div>
         </div>
       </div>
 
